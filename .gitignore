@@ -1,0 +1,8 @@
+.vscode
+.git
+**/*secrets*
+**/*token*
+**/*credentials*
+config/*.yml
+.DS_Store
+**/*pycache*
