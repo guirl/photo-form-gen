@@ -4,5 +4,5 @@ local_dir: .
 form_template_id: YOUR_GOOGLE_FORM_ID
 drive_parent_id: YOUR GOOGLE DRIVE FOLDER ID
 # if name is omitted, it will default to local dir name
-name: YOUR PROJECT NAME
+project_name: YOUR PROJECT NAME
 file_ext: jpg
