@@ -11,7 +11,8 @@ from main import SCOPES
 DEFAULT_OUTPUT_SIZES = {
     'square': {
         'title': "Instagram feed post - square 1x1",
-        'target_width': 1080
+        'target_width': 1080,
+        'target_height': 1080
     },
     'tall': {
         'title': "Instagram feed post - tall 4x5",
@@ -28,6 +29,11 @@ DEFAULT_OUTPUT_SIZES = {
         'target_width': 1080,
         'target_height': 1920
     },
+    'sdtv': {
+        'title': "SD TV 640x480",
+        'target_width': 640,
+        'target_height': 480
+    },
     'unpadded': {
         'title': "website, facebook - no padding, on Insta use only with images of same size",
     }
@@ -37,15 +43,22 @@ DEFAULT_DRIVE_PARENT_ID = "0BzeykJjTHBZUeGc3Q0loOUJ1MlU"
 
 class DeliverImages():
     def __init__(self, args):
-        self.config = {} # todo: load a config file with defaults
+        self.config = {
+        } # todo: load a config file with defaults
         self.args = args
-        self.images = glob(f"{self.args.dir}/*.{self.args.input_ext}")
+        if self.args.dir[-1] == '/':
+            self.args.dir = self.args.dir[0:-1]
+        if self.args.file is not None:
+            self.images = [self.args.file]
+        else:
+            self.images = glob(f"{self.args.dir}/*.{self.args.input_ext}")
         assert len(self.images) > 0, f"Couldn't find any files to upload from {self.args.dir}."
         self.bkgd_color = tuple([int(color) for color in self.args.background.split(',')])
         assert len(self.bkgd_color) == 3, f"Background color {self.args.background} is not a triplet"
         logging.info(f'Background color: {self.bkgd_color}')
-        self.output_sizes = self.config.get('output_sizes', DEFAULT_OUTPUT_SIZES)
-        logging.debug(f'Output sizes: {self.output_sizes}')
+        self.output_size_configs = self.config.get('output_sizes', DEFAULT_OUTPUT_SIZES)
+        self.output_sizes = ['square', 'tall', 'wide', 'story', 'unpadded'] # ['sdtv'] #
+        logging.debug(f'Output sizes: {self.output_size_configs}')
         self.drive_parent_id = self.config.get('drive_parent_id', DEFAULT_DRIVE_PARENT_ID)
         self.drive_exporter = GoogleDriveExporter(scopes=SCOPES)
 
@@ -56,7 +69,10 @@ class DeliverImages():
             file_base = self.get_base_filename(img_filename)
             logging.debug(f'filename base: {file_base}')
             img = Image.open(img_filename)
-            for output_size, sizing_info in self.output_sizes.items():
+            for output_size, sizing_info in self.output_size_configs.items():
+                if output_size not in self.output_sizes:
+                    logging.info(f"Size {output_size} is not enabled, skipping.")
+                    continue
                 new_img = None
                 if output_size == 'unpadded':
                     new_img = img
@@ -77,7 +93,7 @@ class DeliverImages():
         logging.info(f'Uploading files to Google Drive folder {project_folder_name}')
         self.project_folder_id = self.drive_exporter.create_folder(project_folder_name, [self.drive_parent_id])
         self.drive_files = {}
-        for output_size, sizing_info in self.output_sizes.items():
+        for output_size, sizing_info in self.output_size_configs.items():
             output_dir = self.get_output_dir(output_size)
             if output_dir is None:
                 logging.debug(f'No output dir for size "{output_size}"')
@@ -99,24 +115,38 @@ class DeliverImages():
         logging.debug(f"File ids: {self.drive_files}")
 
     def get_output_dir(self, output_size, create=False):
-        if 'dir' in self.output_sizes[output_size]:
-            return self.output_sizes[output_size]['dir']
-        dir_name = self.output_sizes[output_size]['title']
+        if 'dir' in self.output_size_configs[output_size]:
+            return self.output_size_configs[output_size]['dir']
+        dir_name = self.output_size_configs[output_size]['title']
         output_dir = os.path.join(self.args.dir, dir_name)
         if not os.path.exists(output_dir):
             logging.info(f'/{dir_name} not found')
             if not create: return None
             logging.info(f'creating directory {output_dir}')
             os.makedirs(output_dir)
-        self.output_sizes[output_size]['dir'] = output_dir
+        self.output_size_configs[output_size]['dir'] = output_dir
         return output_dir
 
     def get_base_filename(self, img_filename):
         pattern = f'{self.args.dir}/(.*)\.{self.args.input_ext}'
-        base = re.match(pattern, img_filename).group(1)
+        match = re.match(pattern, img_filename)
+        # print(f"filename: {img_filename}, dir: {self.args.dir}, pattern: {pattern} match: {match}")
+        base = match.group(1)
         return base
-    
+
+    def scale_image(self, img, sizing_info):
+        width, height = img.size
+        img_filename = img.filename
+        if height > sizing_info['target_height'] or width > sizing_info['target_width']:
+            scale = min(sizing_info['target_height'] / height, sizing_info['target_width'] / width)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            img = img.resize((new_width, new_height))
+            img.filename = img_filename
+        return img
+
     def square_image(self, img, sizing_info=None):
+        img = self.scale_image(img, sizing_info)
         # get the width and height of the image
         width, height = img.size
         if width > sizing_info['target_width']:
@@ -137,7 +167,9 @@ class DeliverImages():
             return result
 
     def tall_image(self, img, sizing_info=DEFAULT_OUTPUT_SIZES['tall']):
+        img = self.scale_image(img, sizing_info)
         width, height = img.size
+
         if height == sizing_info['target_height']:
             # check to see if side padding is needed
             if width < sizing_info['target_width']:
@@ -154,6 +186,7 @@ class DeliverImages():
             return None
     
     def wide_image(self, img, sizing_info=DEFAULT_OUTPUT_SIZES['wide']):
+        img = self.scale_image(img, sizing_info)
         width, height = img.size
         if height > width: 
             logging.warning(f"Tall images are not supported for wide output, skipping {img.filename}")
@@ -173,7 +206,10 @@ class DeliverImages():
         return result
     
     def story_image(self, img, sizing_info=DEFAULT_OUTPUT_SIZES['story']):
-        self.tall_image(img, sizing_info)
+        return self.tall_image(img, sizing_info)
+
+    def sdtv_image(self, img, sizing_info=DEFAULT_OUTPUT_SIZES['sdtv']):
+        return self.wide_image(img, sizing_info)
 
 
 def main():
@@ -181,6 +217,8 @@ def main():
     parser = ArgumentParser(description="Take a folder full of photos and produce new photos with added borders to pad them to square.")
     parser.add_argument('--dir', '-d', type=str, nargs='?', default=None,
                         help="Path to the directory of photos to process.")
+    parser.add_argument('--file', '-f', type=str, nargs='?', default=None,
+                        help="Single filename to run on instead (exclusive of directory).")
     parser.add_argument('--input-ext', '-i', type=str, nargs='?', default='png',
                         help="File extension to look for.")
     parser.add_argument('--output-ext', '-o', type=str, nargs='?', default='jpg',
