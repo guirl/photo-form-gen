@@ -57,9 +57,16 @@ class DeliverImages():
         assert len(self.bkgd_color) == 3, f"Background color {self.args.background} is not a triplet"
         logging.info(f'Background color: {self.bkgd_color}')
         self.output_size_configs = self.config.get('output_sizes', DEFAULT_OUTPUT_SIZES)
-        self.output_sizes = ['square', 'tall', 'wide', 'story', 'unpadded'] # ['sdtv'] #
+        self.output_sizes = ['square', 'tall', 'wide', 'story', 'unpadded'] # ['sdtv']
         logging.debug(f'Output sizes: {self.output_size_configs}')
         self.drive_parent_id = self.config.get('drive_parent_id', DEFAULT_DRIVE_PARENT_ID)
+        self.watermark_path = self.args.watermark
+        self.watermark_img: Image.Image = None
+        if self.watermark_path is not None:
+            logging.info(f"loading watermark image {self.watermark_path}")
+            self.watermark_img: Image.Image = Image.open(self.watermark_path)
+        else:
+            logging.info("No watermark specified.")
         self.drive_exporter = GoogleDriveExporter(scopes=SCOPES)
 
     def process_files(self):
@@ -73,6 +80,7 @@ class DeliverImages():
                 if output_size not in self.output_sizes:
                     logging.info(f"Size {output_size} is not enabled, skipping.")
                     continue
+                # Scale the image if needed
                 new_img = None
                 if output_size == 'unpadded':
                     new_img = img
@@ -82,6 +90,9 @@ class DeliverImages():
                 if new_img is None:
                     logging.info(f'No output for image "{img_filename}" on size "{output_size}"')
                     continue
+                # Add the watermark
+                new_img = self.apply_watermark(new_img, sizing_info)
+                # Write out the file
                 output_dir = self.get_output_dir(output_size, create=True)
                 new_filename = f"{file_base}-{output_size}.{self.args.output_ext}"
                 new_file_path = os.path.join(output_dir, new_filename)
@@ -134,7 +145,44 @@ class DeliverImages():
         base = match.group(1)
         return base
 
-    def scale_image(self, img, sizing_info):
+    def apply_watermark(self, img: Image.Image, sizing_info: dict=None):
+        if self.watermark_img is None:
+            logging.warn(f"watermarking not enabled, skipping")
+            return img
+        wm_data = sizing_info.get('_wm_data')
+        if wm_data is None:
+            logging.debug(f"Calculating watermark size.")
+            wm_width, wm_height = self.watermark_img.size
+            width, height = img.size
+            wm_scale_factor = 0.08 # TODO add a config
+            wm_opacity_pct = 0.65 # TODO add config
+            new_width = width * wm_scale_factor
+            if new_width > wm_width:
+                logging.warn(f"watermark width is {wm_width}, scaling it to image width {width} * scale factor {wm_scale_factor} results in upscaling. Retaining original watermark size.")
+                new_width = wm_width
+            new_height = wm_height * (new_width / wm_width)
+            x_padding = new_width * 0.5
+            y_padding = new_height * 0.5
+            wm_data = {
+                'alpha': int(255 * wm_opacity_pct),
+                'width': int(new_width),
+                'height': int(new_height),
+                'x': width - int(new_width + x_padding),
+                'y': height - int(new_height + y_padding)
+            }
+            wm_data['scaled_img'] = self.watermark_img.resize((wm_data['width'], wm_data['height']))
+            # wm_data['scaled_img'].putalpha(wm_data['alpha'])
+            logging.debug(f"Calculated watermark data: {wm_data}")
+            sizing_info['_wm_data'] = wm_data
+        else:
+            logging.debug(f"Found cached watermark data: {wm_data}")
+        new_img = Image.new('RGBA', img.size, self.bkgd_color)
+        new_img.paste(img)
+        new_img.alpha_composite(wm_data['scaled_img'], (wm_data['x'], wm_data['y']))
+        new_img = new_img.convert('RGB')
+        return new_img
+
+    def scale_image(self, img: Image.Image, sizing_info):
         width, height = img.size
         img_filename = img.filename
         if height > sizing_info['target_height'] or width > sizing_info['target_width']:
@@ -227,6 +275,8 @@ def main():
                         help="Background color to use for the padded image.")
     parser.add_argument('--quality', '-q', type=int, nargs='?', default=95,
                         help="Quality of the output image.")
+    parser.add_argument('--watermark', '-w', type=str, nargs='?', default=None,
+                        help="Path to a file to use for a watermark.")
     args = parser.parse_args()
     assert args.dir is not None, "Must specify a directory to process."
     delivery = DeliverImages(args)
