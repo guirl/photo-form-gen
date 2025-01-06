@@ -62,6 +62,7 @@ class DeliverImages():
         self.drive_parent_id = self.config.get('drive_parent_id', DEFAULT_DRIVE_PARENT_ID)
         self.watermark_path = self.args.watermark
         self.watermark_img: Image.Image = None
+        self.watermark_scale_factor = self.args.scale_watermark
         if self.watermark_path is not None:
             logging.info(f"loading watermark image {self.watermark_path}")
             self.watermark_img: Image.Image = Image.open(self.watermark_path)
@@ -147,18 +148,17 @@ class DeliverImages():
 
     def apply_watermark(self, img: Image.Image, sizing_info: dict=None):
         if self.watermark_img is None:
-            logging.warn(f"watermarking not enabled, skipping")
+            logging.warning(f"watermarking not enabled, skipping")
             return img
         wm_data = sizing_info.get('_wm_data')
         if wm_data is None:
             logging.debug(f"Calculating watermark size.")
             wm_width, wm_height = self.watermark_img.size
             width, height = img.size
-            wm_scale_factor = 0.08 # TODO add a config
             wm_opacity_pct = 0.65 # TODO add config
-            new_width = width * wm_scale_factor
+            new_width = width * self.watermark_scale_factor
             if new_width > wm_width:
-                logging.warn(f"watermark width is {wm_width}, scaling it to image width {width} * scale factor {wm_scale_factor} results in upscaling. Retaining original watermark size.")
+                logging.warning(f"watermark width is {wm_width}, scaling it to image width {width} * scale factor {self.watermark_scale_factor} results in upscaling. Retaining original watermark size.")
                 new_width = wm_width
             new_height = wm_height * (new_width / wm_width)
             x_padding = new_width * 0.5
@@ -277,6 +277,8 @@ def main():
                         help="Quality of the output image.")
     parser.add_argument('--watermark', '-w', type=str, nargs='?', default=None,
                         help="Path to a file to use for a watermark.")
+    parser.add_argument('--scale-watermark', '-s', type=float, nargs='?', default=0.08,
+                        help="Scale factor for the watermark.")
     args = parser.parse_args()
     assert args.dir is not None, "Must specify a directory to process."
     delivery = DeliverImages(args)
