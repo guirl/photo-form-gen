@@ -5,9 +5,10 @@ from PIL import Image
 from argparse import ArgumentParser
 from glob import glob
 from google_workspace_utils.drive_exporter import GoogleDriveExporter
-from main import SCOPES
+import yaml
 
 
+SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/forms"]
 DEFAULT_OUTPUT_SIZES = {
     'square': {
         'title': "Instagram feed post - square 1x1",
@@ -38,14 +39,13 @@ DEFAULT_OUTPUT_SIZES = {
         'title': "website, facebook - no padding, on Insta use only with images of same size",
     }
 }
-DEFAULT_DRIVE_PARENT_ID = "0BzeykJjTHBZUeGc3Q0loOUJ1MlU"
+DEFAULT_DRIVE_PARENT_ID = None
 
 
 class DeliverImages():
     def __init__(self, args):
-        self.config = {
-        } # todo: load a config file with defaults
         self.args = args
+        self.config = self.load_config()
         if self.args.dir[-1] == '/':
             self.args.dir = self.args.dir[0:-1]
         if self.args.file is not None:
@@ -69,6 +69,13 @@ class DeliverImages():
         else:
             logging.info("No watermark specified.")
         self.drive_exporter = GoogleDriveExporter(scopes=SCOPES)
+
+    def load_config(self):
+        # load from yaml file
+        if self.args.config is not None:
+            assert os.path.exists(self.args.config), f"Config file {self.args.config} not found."
+            return yaml.load(open(self.args.config, 'r').read(), yaml.Loader)
+        return {}
 
     def process_files(self):
         logging.info(f'Processing files from {self.args.dir}')
@@ -103,7 +110,7 @@ class DeliverImages():
     def upload_files(self):
         project_folder_name = self.args.dir.split('/')[-1]
         logging.info(f'Uploading files to Google Drive folder {project_folder_name}')
-        self.project_folder_id = self.drive_exporter.create_folder(project_folder_name, [self.drive_parent_id])
+        self.project_folder_id = self.drive_exporter.find_or_create_subfolder(project_folder_name, self.drive_parent_id)
         self.drive_files = {}
         for output_size, sizing_info in self.output_size_configs.items():
             output_dir = self.get_output_dir(output_size)
@@ -117,7 +124,7 @@ class DeliverImages():
                 logging.warning(f"Couldn't find any files to upload from {filename_pattern}, skipping size {output_size}.")
                 continue
             # Create new folder for this size in the project folder
-            self.folder_id = self.drive_exporter.create_folder(sizing_info['title'], [self.project_folder_id])
+            self.folder_id = self.drive_exporter.find_or_create_subfolder(sizing_info['title'], self.project_folder_id)
             # upload them all to drive
             for filename in filenames:
                 logging.info(f'processing file {filename}')
@@ -140,7 +147,8 @@ class DeliverImages():
         return output_dir
 
     def get_base_filename(self, img_filename):
-        pattern = f'{self.args.dir}/(.*)\.{self.args.input_ext}'
+        escaped_dir = re.escape(self.args.dir)
+        pattern = rf'{escaped_dir}/(.*)\.{self.args.input_ext}$'
         match = re.match(pattern, img_filename)
         # print(f"filename: {img_filename}, dir: {self.args.dir}, pattern: {pattern} match: {match}")
         base = match.group(1)
@@ -263,6 +271,8 @@ class DeliverImages():
 def main():
     logging.basicConfig(level=logging.DEBUG)
     parser = ArgumentParser(description="Take a folder full of photos and produce new photos with added borders to pad them to square.")
+    parser.add_argument('--config', '-c', type=str, nargs='?', default=None,
+                        help="Yaml config file to load options from.")
     parser.add_argument('--dir', '-d', type=str, nargs='?', default=None,
                         help="Path to the directory of photos to process.")
     parser.add_argument('--file', '-f', type=str, nargs='?', default=None,
