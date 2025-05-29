@@ -1,9 +1,9 @@
 from random import randint
 from pprint import pprint
 
-names = ["Chris", "David", "Stephen", "Billy", "Katie", "Grace", "Jim", "Wayna", "Lincoln"]
-avoid_pairs = [("Chris", "Billy"), ("David", "Katie"), ("Stephen", "Grace"), ("Jim", "Wayna")]
-last_year = [("Chris", "David"), ("David", "Grace"), ("Stephen", "Katie"), ("Billy", "Stephen"), ("Katie", "Chris"), ("Grace", "Billy")]
+names = ["C", "D", "S", "B", "K", "G", "J", "W", "L"]
+avoid_pairs = [("C", "B"), ("D", "K"), ("S", "G"), ("J", "W")]
+last_year = [("C", "D"), ("D", "G"), ("S", "K"), ("B", "S"), ("K", "C"), ("G", "B")]
 
 THIS_IS_SILLY = 1000
 
