@@ -123,12 +123,12 @@ class DeliverImages():
             if len(filenames) == 0:
                 logging.warning(f"Couldn't find any files to upload from {filename_pattern}, skipping size {output_size}.")
                 continue
-            # Create new folder for this size in the project folder
+            # Find existing or create new folder for this size in the project folder
             self.folder_id = self.drive_exporter.find_or_create_subfolder(sizing_info['title'], self.project_folder_id)
-            # upload them all to drive
+            # upload them all to drive (or update if they already exist)
             for filename in filenames:
                 logging.info(f'processing file {filename}')
-                file_id = self.drive_exporter.create_file(filename, [self.folder_id])
+                file_id = self.drive_exporter.create_or_update_file(filename, [self.folder_id])
                 self.drive_files[filename] = file_id
         logging.info(f"Uploaded {len(self.drive_files.keys())} files")
         logging.debug(f"File ids: {self.drive_files}")
