@@ -4,5 +4,7 @@
 **/*token*
 **/*credentials*
 config/*.yml
+config/*.json
 .DS_Store
 **/*pycache*
+output_photos/**/*
